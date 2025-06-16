@@ -1,0 +1,110 @@
+import contextlib
+import os
+import numpy as np
+import mujoco
+import mujoco_viewer
+
+DEFAULT_SIZE = 500
+
+class MujocoEnv():
+    """Superclass for all MuJoCo environments.
+    """
+
+    def __init__(self, model_path, sim_dt, control_dt):
+        if model_path.startswith("/"):
+            fullpath = model_path
+        else:
+            raise Exception("Provide full path to robot description package.")
+        if not os.path.exists(fullpath):
+            raise IOError("File %s does not exist" % fullpath)
+
+        # 使用直接XML加载而不是MjSpec (修复MuJoCo 3.3.3兼容性问题)
+        self.model = mujoco.MjModel.from_xml_path(fullpath)
+        self.data = mujoco.MjData(self.model)
+        self.viewer = None
+
+        # set frame skip and sim dt
+        self.frame_skip = (control_dt/sim_dt)
+        self.model.opt.timestep = sim_dt
+
+        self.init_qpos = self.data.qpos.ravel().copy()
+        self.init_qvel = self.data.qvel.ravel().copy()
+
+    def reset(self):
+        """Reset the environment to initial state and return initial observation."""
+        # 重置到初始状态
+        self.data.qpos[:] = self.init_qpos
+        self.data.qvel[:] = self.init_qvel
+        mujoco.mj_forward(self.model, self.data)
+        
+        # 调用子类的reset_model方法
+        self.reset_model()
+        
+        # 返回初始观察
+        return self.get_obs()
+
+    def close(self):
+        """Close the environment."""
+        if self.viewer is not None:
+            self.viewer = None
+
+    # methods to override:
+    # ----------------------------
+
+    def reset_model(self):
+        """
+        Reset the robot degrees of freedom (qpos and qvel).
+        Implement this in each subclass.
+        """
+        raise NotImplementedError
+
+
+    def get_reward(self):
+        raise NotImplementedError
+
+    def is_done(self):
+        return False
+
+    def get_info(self):
+        return {}
+
+    def viewer_setup(self):
+        """
+        This method is called when the viewer is initialized.
+        Optionally implement this method, if you need to tinker with camera position
+        and so forth.
+        """
+        self.viewer.cam.trackbodyid = 1
+
+    def render(self):
+        if self.viewer is None:
+            self.viewer = mujoco_viewer.MujocoViewer(self.model, self.data, mode='window', title='locomotion', width=DEFAULT_SIZE, height=DEFAULT_SIZE)
+            self.viewer_setup()
+        else:
+            self.viewer.render()
+
+    def step(self, action):
+        self.do_simulation(action, self.frame_skip)
+        observation = self.get_obs()
+        reward = self.get_reward()
+        done = self.is_done()
+        info = self.get_info()
+        return observation, reward, done, info
+
+    def do_simulation(self, ctrl, n_frames):
+        self.data.ctrl[:] = ctrl
+        for _ in range(int(n_frames)):
+            mujoco.mj_step(self.model, self.data)
+
+    def get_state(self):
+        return self.data.qpos.ravel().copy(), self.data.qvel.ravel().copy()
+
+    def set_state(self, qpos, qvel):
+        old_state = self.get_state()
+        self.data.qpos[:] = qpos
+        self.data.qvel[:] = qvel
+        mujoco.mj_forward(self.model, self.data)
+        return old_state
+
+    def seed(self, seed=None):
+        pass

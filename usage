@@ -1,0 +1,99 @@
+# 进入项目目录
+cd ~/LearningHumanoidWalking
+
+# 激活虚拟环境
+source humanoid_env/bin/activate
+
+# 验证环境（可选）
+python -c "import mujoco, ray, torch; print('✓ All dependencies ready')"
+
+# 查看所有可用环境
+echo "Available environments:"
+echo "- h1: H1人形机器人站立任务"
+echo "- jvrc_walk: JVRC机器人行走任务"  
+echo "- jvrc_step: JVRC机器人步进任务"
+
+# 基础训练
+python run_experiment.py train --env h1 --logdir ./experiments/h1_new --num-procs 2
+
+# 自定义参数训练
+python run_experiment.py train \
+    --env h1 \
+    --logdir ./experiments/h1_custom \
+    --num-procs 4 \
+    --n-itr 10000 \
+    --lr 1e-4
+    
+    # JVRC行走任务
+python run_experiment.py train --env jvrc_walk --logdir ./experiments/jvrc_walk --num-procs 2
+
+# JVRC步进任务
+python run_experiment.py train --env jvrc_step --logdir ./experiments/jvrc_step --num-procs 2
+
+# 方法1: 查看实时日志
+tail -f ./experiments/h1_new/progress.txt
+
+# 方法2: 使用tensorboard（如果安装了）
+pip install tensorboard  # 如果没安装
+tensorboard --logdir ./experiments/h1_new
+
+# 方法3: 查看保存的模型
+ls ./experiments/h1_new/
+
+# 评估最新的模型
+python run_experiment.py eval --logdir ./experiments/h1_new/actor.pt
+
+# 或者使用特定的调试脚本
+PYTHONPATH=.:$PYTHONPATH python scripts/debug_stepper.py --path ./experiments/h1_new
+
+# 编辑H1配置文件
+nano envs/h1/configs/base.yaml
+
+# 或者创建新的配置文件
+cp envs/h1/configs/base.yaml envs/h1/configs/my_config.yaml
+# 然后编辑 my_config.yaml
+
+# 使用自定义配置训练
+python run_experiment.py train \
+    --env h1 \
+    --logdir ./experiments/h1_custom_config \
+    --yaml envs/h1/configs/my_config.yaml \
+    --num-procs 2
+    
+# 快速启动环境
+alias start_humanoid="cd ~/LearningHumanoidWalking && source humanoid_env/bin/activate"
+
+# 快速训练H1
+alias train_h1="python run_experiment.py train --env h1 --logdir ./experiments/h1_$(date +%Y%m%d_%H%M%S) --num-procs 2"
+
+# 快速评估
+alias eval_latest="python run_experiment.py eval --logdir ./experiments/*/actor.pt"
+
+
+
+
+cd ~/LearningHumanoidWalking
+source humanoid_env/bin/activate
+
+# 短时间测试训练（确保没问题）
+python run_experiment.py train --env h1 --logdir ./experiments/test --num-procs 1 --n-itr 100
+
+# 如果测试OK，开始正式训练
+python run_experiment.py train --env h1 --logdir ./experiments/h1_$(date +%Y%m%d) --num-procs 4
+
+
+cd ~/LearningHumanoidWalking
+source humanoid_env/bin/activate
+
+# 从检查点继续训练
+python run_experiment.py train --env h1 --logdir ./experiments/existing_experiment --continued True
+
+
+# 查看所有实验
+ls experiments/
+
+# 清理旧实验
+rm -rf experiments/old_experiment_name
+
+# 备份重要实验
+cp -r experiments/best_model experiments/best_model_backup
