@@ -1,3 +1,5 @@
+experiments/
+humanoid_env/
 *~
 __pycache__*
 *.pyc
