@@ -6,3 +6,27 @@ __pycache__*
 *.egg-info
 *.#~
 logs*
+
+# Model files
+*.pt
+*.pth
+*.pkl
+*.ckpt
+*.h5
+*.pb
+*.onnx
+
+# VS Code
+.vscode/
+
+# Large binaries and libraries
+*.so
+*.dll
+*.dylib
+*.bin
+*.exe
+
+# Virtual environments
+venv/
+env/
+.env
