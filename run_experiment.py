@@ -10,6 +10,7 @@ import pickle
 import shutil
 
 from rl.algos.ppo import PPO
+from rl.algos.sac import SAC
 from rl.envs.wrappers import SymmetricEnv
 from rl.utils.eval import EvaluateEnv
 
@@ -57,8 +58,21 @@ def run_experiment(args):
         config_out_path = Path(args.logdir, "config.yaml")
         shutil.copyfile(args.yaml, config_out_path)
 
-    algo = PPO(env_fn, args)
-    algo.train(env_fn, args.n_itr)
+    # Choose algorithm
+    algorithm = getattr(args, 'algorithm', 'ppo').lower()
+    if algorithm == 'ppo':
+        algo = PPO(env_fn, args)
+    elif algorithm == 'sac':
+        algo = SAC(env_fn, args)
+    else:
+        raise ValueError(f"Unknown algorithm: {algorithm}")
+    
+    if algorithm == 'sac':
+        # For SAC, n_itr will be interpreted as the total number of training steps
+        algo.train(num_total_steps=args.n_itr)
+    else:
+        # For PPO, the original signature is kept
+        algo.train(env_fn, args.n_itr)
 
 if __name__ == "__main__":
 
@@ -93,6 +107,23 @@ if __name__ == "__main__":
         parser.add_argument("--imitate", required=False, type=str, default=None, help="Policy to imitate")
         parser.add_argument("--imitate-coeff", required=False, type=float, default=0.3, help="Coefficient for imitation loss")
         parser.add_argument("--yaml", required=False, type=str, default=None, help="Path to config file passed to Env class")
+        
+        # Algorithm selection
+        parser.add_argument("--algorithm", required=False, type=str, default="ppo", choices=["ppo", "sac"], 
+                           help="RL algorithm to use")
+        
+        # SAC specific parameters
+        parser.add_argument("--tau", required=False, type=float, default=0.005, help="SAC: Soft update rate")
+        parser.add_argument("--alpha", required=False, type=float, default=0.2, help="SAC: Entropy regularization coefficient")
+        parser.add_argument("--auto-alpha", required=False, action="store_true", help="SAC: Automatic alpha tuning")
+        parser.add_argument("--target-entropy", required=False, type=float, default=None, help="SAC: Target entropy")
+        parser.add_argument("--batch-size", required=False, type=int, default=256, help="SAC: Batch size for updates")
+        parser.add_argument("--buffer-size", required=False, type=int, default=1000000, help="SAC: Replay buffer size")
+        parser.add_argument("--learning-starts", required=False, type=int, default=1000, help="SAC: Steps before learning starts")
+        parser.add_argument("--update-freq", required=False, type=int, default=1, help="SAC: Update frequency")
+        parser.add_argument("--gradient-steps", required=False, type=int, default=1, help="SAC: Gradient steps per update")
+        parser.add_argument("--use-lstm", required=False, action="store_true", help="SAC: Use LSTM networks")
+        
         args = parser.parse_args()
 
         run_experiment(args)
@@ -116,16 +147,19 @@ if __name__ == "__main__":
         else:
             raise Exception("Invalid path to actor module: ", args.path)
 
-        path_to_critic = Path(path_to_actor.parent, "critic" + str(path_to_actor).split('actor')[1])
         path_to_pkl = Path(path_to_actor.parent, "experiment.pkl")
 
         # load experiment args
         run_args = pickle.load(open(path_to_pkl, "rb"))
         # load trained policy
         policy = torch.load(path_to_actor, weights_only=False)
-        critic = torch.load(path_to_critic, weights_only=False)
         policy.eval()
-        critic.eval()
+
+        # Only load critic for PPO, as it's not needed for SAC eval and filenames differ.
+        if getattr(run_args, 'algorithm', 'ppo') == 'ppo':
+            path_to_critic = Path(path_to_actor.parent, "critic" + str(path_to_actor).split('actor')[1])
+            critic = torch.load(path_to_critic, weights_only=False)
+            critic.eval()
 
         # load experiment args
         run_args = pickle.load(open(path_to_pkl, "rb"))

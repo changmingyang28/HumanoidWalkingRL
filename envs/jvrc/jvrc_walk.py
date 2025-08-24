@@ -64,8 +64,8 @@ class JvrcWalkEnv(mujoco_env.MujocoEnv):
         )
         # set goal height
         self.task._goal_height_ref = 0.80
-        self.task._total_duration = 1.1
-        self.task._swing_duration = 0.75
+        self.task._total_duration = 0.8
+        self.task._swing_duration = 0.5
         self.task._stance_duration = 0.35
 
         # set up robot

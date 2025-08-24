@@ -13,6 +13,7 @@ class EvaluateEnv:
         self.env = env
         self.policy = policy
         self.ep_len = args.ep_len
+        self.override_params = None
 
         if args.out_dir is None:
             args.out_dir = Path(args.path.parent, "videos")
@@ -26,6 +27,26 @@ class EvaluateEnv:
         except Exception as e:
             print("Could not create video writer:", e)
             exit(-1)
+    
+    def _apply_overrides(self):
+        """Apply parameter overrides after environment reset"""
+        if self.override_params is None:
+            return
+            
+        if self.override_params['speed'] is not None:
+            self.env.task._goal_speed_ref = self.override_params['speed']
+            
+        if self.override_params['height'] is not None:
+            self.env.task._goal_height_ref = self.override_params['height']
+            
+        if self.override_params['swing_duration'] is not None:
+            self.env.task._swing_duration = self.override_params['swing_duration']
+            
+        if self.override_params['stance_duration'] is not None:
+            self.env.task._stance_duration = self.override_params['stance_duration']
+            
+        if self.override_params['swing_duration'] is not None or self.override_params['stance_duration'] is not None:
+            self.env.task._total_duration = self.env.task._swing_duration + self.env.task._stance_duration
 
     @torch.no_grad()
     def run(self):
@@ -44,6 +65,12 @@ class EvaluateEnv:
 
         reset_counter = 0
         observation = self.env.reset()
+        self._apply_overrides()
+        
+        # Initialize LSTM hidden states if using LSTM policy
+        if hasattr(self.policy, 'init_hidden_state'):
+            self.policy.init_hidden_state()
+        
         while self.env.data.time < self.ep_len:
 
             step_start = time.time()
@@ -62,6 +89,10 @@ class EvaluateEnv:
 
             if done and reset_counter < 3:
                 observation = self.env.reset()
+                self._apply_overrides()
+                # Re-initialize LSTM hidden states after reset
+                if hasattr(self.policy, 'init_hidden_state'):
+                    self.policy.init_hidden_state()
                 reset_counter += 1
 
             time_until_next_step = max(

@@ -30,3 +30,8 @@ logs*
 venv/
 env/
 .env
+
+# Experiment outputs
+eval_videos/
+sac_h1_walk_test/
+test_run/

@@ -43,9 +43,16 @@ class Task:
         yaw_vel = self._client.get_qvel()[5]
         yaw_vel_error = np.linalg.norm(yaw_vel)
 
+        # MODIFICATION: Add lateral deviation penalty
+        lateral_pos = root_pose[1, 3]
+        lateral_error = np.square(lateral_pos)
+
         reward = {
-            "com_vel_error": 0.3 * np.exp(-4 * np.square(fwd_vel_error)),
+            # MODIFICATION: Increased weight from 0.3 to 0.5
+            "com_vel_error": 0.5 * np.exp(-4 * np.square(fwd_vel_error)),
             "yaw_vel_error": 0.3 * np.exp(-4 * np.square(yaw_vel_error)),
+            # MODIFICATION: Added new reward term for walking straight
+            "lateral_deviation": 0.2 * np.exp(-50 * lateral_error),
             "height": 0.1 * np.exp(-0.5 * np.square(height_error)),
             "upperbody": 0.1 * np.exp(-40*np.square(upperbody_error)),
             "joint_torque_reward": 0.1 * np.exp(-5e-5*np.square(tau_error)),
