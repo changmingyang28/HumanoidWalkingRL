@@ -1,6 +1,8 @@
 from pathlib import Path
 import sys
 import argparse
+import subprocess
+import os
 import ray
 from functools import partial
 
@@ -8,6 +10,51 @@ import numpy as np
 import torch
 import pickle
 import shutil
+
+# Auto-install dependencies if needed
+def install_dependencies():
+    """Install required dependencies automatically."""
+    required_packages = [
+        'ray[default]', 'torch', 'numpy', 'mujoco', 'gymnasium', 
+        'stable-baselines3', 'matplotlib', 'opencv-python', 'imageio',
+        'tensorboard', 'wandb', 'neptune-client'
+    ]
+    
+    print("Checking and installing dependencies...")
+    missing_packages = []
+    
+    for package in required_packages:
+        try:
+            if package == 'ray[default]':
+                import ray
+            elif package == 'opencv-python':
+                import cv2
+            elif package == 'neptune-client':
+                import neptune
+            else:
+                __import__(package.replace('-', '_'))
+        except ImportError:
+            missing_packages.append(package)
+    
+    if missing_packages:
+        print(f"Installing missing packages: {missing_packages}")
+        for package in missing_packages:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+        print("Dependencies installed successfully!")
+    else:
+        print("All dependencies already installed.")
+
+# Install dependencies at import time
+install_dependencies()
+
+# Set up GM platform environment variables
+os.environ.setdefault('WANDB_PROJECT', 'humanoid-walking-rl')
+os.environ.setdefault('WANDB_MODE', 'online')
+
+print("GM Platform Integration: ENABLED")
+print(f"WandB Project: {os.environ['WANDB_PROJECT']}")
+if os.environ.get('WANDB_ENTITY'):
+    print(f"WandB Entity: {os.environ['WANDB_ENTITY']}")
 
 from rl.algos.ppo import PPO
 from rl.algos.sac import SAC
@@ -123,6 +170,7 @@ if __name__ == "__main__":
         parser.add_argument("--update-freq", required=False, type=int, default=1, help="SAC: Update frequency")
         parser.add_argument("--gradient-steps", required=False, type=int, default=1, help="SAC: Gradient steps per update")
         parser.add_argument("--use-lstm", required=False, action="store_true", help="SAC: Use LSTM networks")
+        parser.add_argument("--use-wandb", required=False, action="store_true", default=True, help="Enable WandB/GM platform logging")
         
         args = parser.parse_args()
 

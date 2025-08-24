@@ -1,6 +1,6 @@
 #!/bin/bash
-# Enhanced setup and training script for GM platform deployment
-# Usage: gm-run setup_and_train.sh
+# Enhanced setup and training script for GM platform deployment - PPO Version
+# Usage: gm-run setup_and_train_ppo.sh
 
 set -e  # Exit on any error
 
@@ -18,19 +18,19 @@ export WANDB_MODE="${WANDB_MODE:-online}"
 # Create logs directory
 mkdir -p logs
 
-echo "Starting training with GM platform integration..."
+echo "Starting PPO training with GM platform integration..."
 echo "WandB Project: $WANDB_PROJECT"
-echo "Algorithm: SAC (saves every 100k steps)"
-echo "Expected checkpoints: sac_checkpoint_100000.pt, sac_checkpoint_200000.pt, etc."
+echo "Algorithm: PPO (saves every 1000 iterations)"
+echo "Expected checkpoints: ppo_checkpoint_1000.pt, ppo_checkpoint_2000.pt, etc."
 
 python HumanoidWalkingRL/run_experiment.py train \
   --env h1 \
   --yaml envs/h1/configs/walking.yaml \
-  --algorithm sac \
-  --logdir ./sac_h1_walk_straight_fast \
-  --n-itr 1000000 \
+  --algorithm ppo \
+  --logdir ./ppo_h1_walk_straight_fast \
+  --n-itr 50000 \
   --use-wandb
 
-echo "Training completed!"
+echo "PPO Training completed!"
 echo "Check the GM platform for uploaded models and training metrics."
-echo "Local logs saved in: ./sac_h1_walk_straight_fast/models/"
+echo "Local logs saved in: ./ppo_h1_walk_straight_fast/models/"

@@ -7,3 +7,6 @@ stable-baselines3
 matplotlib
 opencv-python
 imageio
+tensorboard
+wandb
+neptune-client

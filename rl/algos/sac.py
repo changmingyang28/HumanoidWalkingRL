@@ -13,6 +13,7 @@ from copy import deepcopy
 from rl.storage.replay_buffer import ReplayBuffer
 from rl.policies.sac_actor_critic import SAC_LSTM_Actor, SAC_LSTM_Critic, SAC_FF_Actor, SAC_FF_Critic
 from rl.envs.normalize import get_normalization_params
+from rl.utils.gm_logger import GMLogger
 
 
 class SAC:
@@ -37,10 +38,33 @@ class SAC:
         self.total_steps = 0
         self.highest_reward = -np.inf
         
-        # Logging
+        # Logging with GM platform integration
         self.save_path = Path(args.logdir)
         Path.mkdir(self.save_path, parents=True, exist_ok=True)
         self.writer = SummaryWriter(log_dir=self.save_path, flush_secs=10)
+        
+        # Initialize GM Logger
+        use_wandb = getattr(args, 'use_wandb', True)  # Enable WandB by default
+        self.gm_logger = GMLogger(
+            log_dir=self.save_path,
+            algorithm_name="SAC",
+            run_name=getattr(args, 'run_name', None),
+            use_wandb=use_wandb
+        )
+        
+        # Log hyperparameters
+        hparams = {
+            'algorithm': 'SAC',
+            'gamma': self.gamma,
+            'lr': self.lr,
+            'tau': self.tau,
+            'alpha': self.alpha,
+            'auto_alpha': self.auto_alpha,
+            'batch_size': self.batch_size,
+            'buffer_size': self.buffer_size,
+            'use_lstm': self.use_lstm
+        }
+        self.gm_logger.log_hyperparameters(hparams)
         
         # Get environment dimensions
         self.env = env_fn()
@@ -264,6 +288,9 @@ class SAC:
                 
                 # Log training losses
                 if self.total_steps % 1000 == 0: # Log every 1000 steps
+                    loss_metrics = {f"Loss/{key}": value for key, value in losses.items()}
+                    self.gm_logger.log_scalars(loss_metrics, self.total_steps)
+                    # Keep tensorboard logging for backward compatibility
                     for key, value in losses.items():
                         self.writer.add_scalar(f"Loss/{key}", value, self.total_steps)
 
@@ -272,6 +299,12 @@ class SAC:
                 episode_count += 1
                 print(f"Step: {self.total_steps}, Episode: {episode_count}, Length: {episode_length}, Reward: {episode_reward:.2f}")
                 
+                # Log episode metrics to both tensorboard and GM platform
+                episode_metrics = {
+                    "Train/episode_reward": episode_reward,
+                    "Train/episode_length": episode_length
+                }
+                self.gm_logger.log_scalars(episode_metrics, self.total_steps)
                 self.writer.add_scalar("Train/episode_reward", episode_reward, self.total_steps)
                 self.writer.add_scalar("Train/episode_length", episode_length, self.total_steps)
                 
@@ -292,6 +325,12 @@ class SAC:
                 print(f"Avg Reward: {avg_reward:.3f}, Avg Length: {avg_length:.3f}, Time: {eval_time:.2f}s")
                 print("-" * 37)
                 
+                # Log evaluation metrics to both platforms
+                eval_metrics = {
+                    "Eval/mean_reward": avg_reward,
+                    "Eval/mean_episode_length": avg_length
+                }
+                self.gm_logger.log_scalars(eval_metrics, self.total_steps)
                 self.writer.add_scalar("Eval/mean_reward", avg_reward, self.total_steps)
                 self.writer.add_scalar("Eval/mean_episode_length", avg_length, self.total_steps)
                 
@@ -300,11 +339,39 @@ class SAC:
                     self.highest_reward = avg_reward
                     print("New best model found! Saving...")
                     self.save(nets, self.save_path)
+                    # Save best model to GM platform
+                    model_state = {
+                        'actor': self.actor.state_dict(),
+                        'critic1': self.critic1.state_dict(),
+                        'critic2': self.critic2.state_dict(),
+                        'step': self.total_steps,
+                        'reward': avg_reward
+                    }
+                    self.gm_logger.save_model(model_state, self.total_steps, "best_model")
                 
-                # MODIFICATION: Save a periodic checkpoint only every 100,000 steps
+                # SAC: Save a periodic checkpoint every 100,000 steps  
                 if self.total_steps % 100000 == 0:
-                    print(f"Saving periodic checkpoint at step {self.total_steps}...")
+                    print(f"Saving SAC periodic checkpoint at step {self.total_steps}...")
                     self.save(nets, self.save_path, f"_{self.total_steps}")
+                    
+                    # Save checkpoint to GM platform
+                    checkpoint_data = {
+                        'actor': self.actor.state_dict(),
+                        'critic1': self.critic1.state_dict(),
+                        'critic2': self.critic2.state_dict(),
+                        'actor_optimizer': self.actor_optimizer.state_dict(),
+                        'critic1_optimizer': self.critic1_optimizer.state_dict(),
+                        'critic2_optimizer': self.critic2_optimizer.state_dict(),
+                        'replay_buffer_size': len(self.replay_buffer),
+                        'step': self.total_steps,
+                        'total_steps': self.total_steps,
+                        'highest_reward': self.highest_reward
+                    }
+                    if self.auto_alpha:
+                        checkpoint_data['alpha_optimizer'] = self.alpha_optimizer.state_dict()
+                        checkpoint_data['log_alpha'] = self.log_alpha.item()
+                    
+                    self.gm_logger.save_checkpoint(checkpoint_data, self.total_steps, "sac_checkpoint")
 
         print("Training finished.")
         self.env.close()

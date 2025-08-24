@@ -20,6 +20,7 @@ from rl.storage.rollout_storage import PPOBuffer
 from rl.policies.actor import Gaussian_FF_Actor, Gaussian_LSTM_Actor
 from rl.policies.critic import FF_V, LSTM_V
 from rl.envs.normalize import get_normalization_params
+from rl.utils.gm_logger import GMLogger
 
 class PPO:
     def __init__(self, env_fn, args):
@@ -55,6 +56,18 @@ class PPO:
 
         # create the summarywriter
         self.writer = SummaryWriter(log_dir=self.save_path, flush_secs=10)
+        
+        # Initialize GM Logger for PPO
+        use_wandb = getattr(args, 'use_wandb', True)
+        self.gm_logger = GMLogger(
+            log_dir=self.save_path,
+            algorithm_name="PPO", 
+            run_name=getattr(args, 'run_name', None),
+            use_wandb=use_wandb
+        )
+        
+        # Log hyperparameters after network creation
+        self.log_hyperparameters_later = True
 
         # create networks or load up pretrained
         obs_dim = env_fn().observation_space.shape[0]
@@ -102,6 +115,26 @@ class PPO:
         self.policy = policy
         self.critic = critic
         self.base_policy = base_policy
+        
+        # Log hyperparameters to GM platform
+        if self.log_hyperparameters_later:
+            hparams = {
+                'algorithm': 'PPO',
+                'gamma': self.gamma,
+                'lam': self.lam,
+                'lr': self.lr,
+                'clip': self.clip,
+                'epochs': self.epochs,
+                'minibatch_size': self.minibatch_size,
+                'entropy_coeff': self.ent_coeff,
+                'max_traj_len': self.max_traj_len,
+                'n_proc': self.n_proc,
+                'recurrent': self.recurrent,
+                'obs_dim': obs_dim,
+                'action_dim': action_dim
+            }
+            self.gm_logger.log_hyperparameters(hparams)
+            self.log_hyperparameters_later = False
 
     @staticmethod
     def save(nets, save_path, suffix=""):
@@ -281,7 +314,19 @@ class PPO:
         avg_eval_ep_rewards = np.mean(eval_ep_rewards)
         if self.highest_reward < avg_eval_ep_rewards:
             self.highest_reward = avg_eval_ep_rewards
+            print("New best PPO model found! Saving...")
             self.save(nets, self.save_path)
+            
+            # Save best model to GM platform
+            model_state = {
+                'actor': self.policy.state_dict(),
+                'critic': self.critic.state_dict(),
+                'iteration': itr,
+                'reward': avg_eval_ep_rewards,
+                'obs_mean': self.policy.obs_mean.tolist(),
+                'obs_std': self.policy.obs_std.tolist()
+            }
+            self.gm_logger.save_model(model_state, itr, "best_ppo_model")
 
         return eval_batches
 
@@ -419,11 +464,33 @@ class PPO:
                 print("(Episode length:{:.3f}. Reward:{:.3f}. Time taken:{:.2f}s)".format(
                     avg_eval_ep_lens, avg_eval_ep_rewards, eval_time))
 
-                # tensorboard logging
+                # Log evaluation metrics to GM platform and tensorboard
+                eval_metrics = {
+                    "Eval/mean_reward": avg_eval_ep_rewards,
+                    "Eval/mean_episode_length": avg_eval_ep_lens
+                }
+                self.gm_logger.log_scalars(eval_metrics, itr)
+                
+                # Tensorboard logging (backward compatibility)
                 self.writer.add_scalar("Eval/mean_reward", avg_eval_ep_rewards, itr)
                 self.writer.add_scalar("Eval/mean_episode_length", avg_eval_ep_lens, itr)
 
-            # tensorboard logging
+            # Log training metrics to GM platform and tensorboard
+            train_metrics = {
+                "Loss/actor": np.mean(actor_losses),
+                "Loss/critic": np.mean(critic_losses),
+                "Loss/mirror": np.mean(mirror_losses),
+                "Loss/imitation": np.mean(imitation_losses),
+                "Train/mean_reward": torch.mean(batch.ep_rewards).item(),
+                "Train/mean_episode_length": torch.mean(batch.ep_lens).item(),
+                "Train/mean_noise_std": np.mean(action_noise),
+                "Train/kl_divergence": np.mean(kls),
+                "Train/entropy": np.mean(entropies),
+                "Train/clip_fraction": np.mean(clip_fractions)
+            }
+            self.gm_logger.log_scalars(train_metrics, itr)
+            
+            # Tensorboard logging (backward compatibility)
             self.writer.add_scalar("Loss/actor", np.mean(actor_losses), itr)
             self.writer.add_scalar("Loss/critic", np.mean(critic_losses), itr)
             self.writer.add_scalar("Loss/mirror", np.mean(mirror_losses), itr)
@@ -431,3 +498,23 @@ class PPO:
             self.writer.add_scalar("Train/mean_reward", torch.mean(batch.ep_rewards), itr)
             self.writer.add_scalar("Train/mean_episode_length", torch.mean(batch.ep_lens), itr)
             self.writer.add_scalar("Train/mean_noise_std", np.mean(action_noise), itr)
+            
+            # PPO: Save checkpoint every 1000 iterations
+            if (itr + 1) % 1000 == 0:
+                print(f"Saving PPO periodic checkpoint at iteration {itr + 1}...")
+                nets = {"actor": self.policy, "critic": self.critic}
+                self.save(nets, self.save_path, f"_{itr + 1}")
+                
+                # Save checkpoint to GM platform
+                checkpoint_data = {
+                    'actor': self.policy.state_dict(),
+                    'critic': self.critic.state_dict(),
+                    'actor_optimizer': self.actor_optimizer.state_dict(),
+                    'critic_optimizer': self.critic_optimizer.state_dict(),
+                    'iteration': itr + 1,
+                    'total_steps': self.total_steps,
+                    'highest_reward': self.highest_reward,
+                    'obs_mean': self.policy.obs_mean.tolist(),
+                    'obs_std': self.policy.obs_std.tolist()
+                }
+                self.gm_logger.save_checkpoint(checkpoint_data, itr + 1, "ppo_checkpoint")
