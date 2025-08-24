@@ -1,17 +1,8 @@
-from pathlib import Path
+# Auto-install dependencies FIRST before any other imports
 import sys
-import argparse
 import subprocess
 import os
-import ray
-from functools import partial
 
-import numpy as np
-import torch
-import pickle
-import shutil
-
-# Auto-install dependencies if needed
 def install_dependencies():
     """Install required dependencies automatically."""
     required_packages = [
@@ -31,6 +22,8 @@ def install_dependencies():
                 import cv2
             elif package == 'neptune-client':
                 import neptune
+            elif package == 'stable-baselines3':
+                import stable_baselines3
             else:
                 __import__(package.replace('-', '_'))
         except ImportError:
@@ -39,12 +32,16 @@ def install_dependencies():
     if missing_packages:
         print(f"Installing missing packages: {missing_packages}")
         for package in missing_packages:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-        print("Dependencies installed successfully!")
+            try:
+                subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+            except subprocess.CalledProcessError as e:
+                print(f"Failed to install {package}: {e}")
+                # Continue with other packages
+        print("Dependencies installation completed!")
     else:
         print("All dependencies already installed.")
 
-# Install dependencies at import time
+# Install dependencies at the very beginning
 install_dependencies()
 
 # Set up GM platform environment variables
@@ -55,6 +52,17 @@ print("GM Platform Integration: ENABLED")
 print(f"WandB Project: {os.environ['WANDB_PROJECT']}")
 if os.environ.get('WANDB_ENTITY'):
     print(f"WandB Entity: {os.environ['WANDB_ENTITY']}")
+
+# Now import everything else AFTER dependencies are installed
+from pathlib import Path
+import argparse
+import ray
+from functools import partial
+
+import numpy as np
+import torch
+import pickle
+import shutil
 
 from rl.algos.ppo import PPO
 from rl.algos.sac import SAC
